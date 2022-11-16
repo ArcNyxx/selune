@@ -1,0 +1,18 @@
+selune - selections manager
+===========================
+selune is a utility to capture and distribute data via x selections.
+
+Requirements
+------------
+selune requires libxcb and libxcb-icccm to build.
+
+Installation
+------------
+selune comes with a Makefile and config.mk file for configurable building and
+testing.  Edit the latter to match your local setup (selune is installed into
+the /usr/local namespace by default, you may need to modify your $PATH).
+
+selune can be built and installed with the following command (run as root):
+
+    make clean install
+
