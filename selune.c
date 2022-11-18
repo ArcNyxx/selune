@@ -148,13 +148,14 @@ main(int argc, char **argv)
 	} else {
 		long ret, tot;
 		buf = srealloc(buf, tot = 256);
-		while ((ret = read(STDIN_FILENO, &buf[len],
-				tot - len)) == (long)(tot - len))
+		while ((ret = read(STDIN_FILENO, &buf[len], tot - len)) ==
+				(long)(tot - len))
 			buf = srealloc(buf, tot *= 2), len += ret;
 		if (ret == -1)
 			die("selune: unable to read from stdin: ");
 		buf = srealloc(buf, len += ret);
 	}
+
 	if (len != 0)         write(STDOUT_FILENO, buf, len);
 	if (fork() != 0)      return 0;
 	if (chdir("/") == -1) die("selune: unable to chdir: /: ");
