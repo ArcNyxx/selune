@@ -1,0 +1,74 @@
+.\" selune - selections manager
+.\" Copyright (C) 2022 ArcNyxx
+.\" see LICENCE file for licensing information
+.TH SELUNE 1 selune\-VERSION
+.SH NAME
+selune \- selections manager
+.SH SYNOPSIS
+.SY selune
+.OP \-cpstx
+.RI [ target ]
+.RI [ select ]
+.YS
+.SH DESCRIPTION
+.BR selune (1)
+is a selections manager for
+.BR x (7).
+.BR selune (1)
+always outputs the desired selection to
+.I stdout
+and handles input from
+.I stdin
+if not from a tty.  Any input is stored in the desired selection and
+.BR selune (1)
+handles the distribution of the data to other querying clients.
+.SH OPTIONS
+.TP
+.B \-c
+Use the
+.B CLIPBOARD
+selection.  This is the default.
+.TP
+.B \-p
+Use the
+.B PRIMARY
+selection.
+.TP
+.B \-s
+Use the
+.B SECONDARY
+selection.
+.TP
+.BI \-t\  target
+Use
+.I target
+as the target type of the selection.  The default type is
+.BR UTF8_STRING .
+.TP
+.BI \-x\  select
+Use
+.I select
+as the selection.
+.SH EXAMPLES
+Grab an image using
+.BR bscr (1)
+and copy it to a file and the clipboard two different ways:
+.PP
+.EX
+$ bscr ; selune >image.png
+$ bscr >image.png ; selune \-t image/png <image.png
+.EE
+.PP
+Copy to the
+.B PRIMARY
+selection from
+.BR uptime (1)
+but continue to use the data in other ways:
+.PP
+.EX
+$ uptime | selune \-p | ...
+.EE
+.SH AUTHOR
+Written by ArcNyxx.
+.SH SEE ALSO
+.BR bscr (1)
