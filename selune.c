@@ -38,7 +38,7 @@ static void *srealloc(void *ptr, size_t len);
 static char *getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time);
 static bool send(xcb_generic_event_t *evt, xcb_atom_t trg,
-		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen)
+		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen);
 
 static xcb_connection_t *conn;
 
@@ -122,7 +122,7 @@ send(xcb_generic_event_t *evt, xcb_atom_t trg, xcb_timestamp_t time,
 				0, 0, ev->time, ev->requestor,
 				ev->selection, ev->target, ev->property };
 
-		if (ev->time < time || ev->property == XCB_NONE) {
+		if (/*ev->time < time ||*/ ev->property == XCB_NONE) {
 			sev.property = XCB_NONE;
 		} else if (len > maxlen) {
 			die("UNIMPLEMENTED\n");
@@ -193,18 +193,20 @@ main(int argc, char **argv)
 	if (isatty(STDIN_FILENO)) {
 		buf = getsel(win, asel, atrg, incr, &len, &time);
 	} else {
-		long ret, tot;
+		long ret; size_t tot;
 		buf = srealloc(buf, tot = 256);
-		while ((ret = read(STDIN_FILENO, &buf[len], tot - len)) ==
-				(long)(tot - len))
-			buf = srealloc(buf, tot *= 2), len += ret;
-		if (ret == -1)
-			die("selune: unable to read from stdin: ");
-		buf = srealloc(buf, len += ret);
+		while ((ret = read(STDIN_FILENO, &buf[len], tot - len)) != 0) {
+			if (ret == -1)
+				die("selune: unable to read from pipe: ");
+			if (tot == (len += ret))
+				buf = srealloc(buf, tot *= 2);
+		}
+		buf = srealloc(buf, len);
 
 		xcb_generic_event_t *evt;
 		xcb_change_property(conn, XCB_PROP_MODE_APPEND, win,
-				atrg, atrg, 8, 0, NULL);
+				tims, tims, 8, 0, NULL);
+		xcb_flush(conn);
 		while ((evt = xcb_wait_for_event(conn)) != NULL &&
 				(evt->response_type & ~0x80) !=
 				XCB_PROPERTY_NOTIFY)
@@ -213,18 +215,20 @@ main(int argc, char **argv)
 	}
 
 	if (len != 0)         write(STDOUT_FILENO, buf, len);
-	// if (fork() != 0)      return 0;
-	// if (chdir("/") == -1) die("selune: unable to chdir: /: ");
+	if (fork() != 0)      return 0;
+	if (chdir("/") == -1) die("selune: unable to chdir: /: ");
 
 	xcb_get_selection_owner_reply_t *gep;
-	xcb_set_selection_owner(conn, win, asel, time);
+	if (xcb_request_check(conn, xcb_set_selection_owner(conn,
+			win, asel, time)) != NULL)
+		die("selune: unable to change selection ownership\n");
 	if ((gep = xcb_get_selection_owner_reply(conn, xcb_get_selection_owner(
 			conn, asel), NULL)) == NULL || gep->owner != win)
 		die("selune: unable to confirm selection ownership\n");
 	free(gep);
 
 	xcb_generic_event_t *evt;
-	size_t maxlen = xcb_get_maximum_request_length(conn) * 3 / 4;
+	size_t maxlen = xcb_get_maximum_request_length(conn) / 4 * 3;
 	while ((evt = xcb_wait_for_event(conn)) != NULL) {
 		if (send(evt, atrg, time, buf, len, maxlen))
 			break;
