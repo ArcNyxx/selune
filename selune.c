@@ -37,6 +37,8 @@ static void die(const char *fmt, ...);
 static void *srealloc(void *ptr, size_t len);
 static char *getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time);
+static bool send(xcb_generic_event_t *evt, xcb_atom_t trg,
+		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen)
 
 static xcb_connection_t *conn;
 
@@ -105,6 +107,41 @@ run:
 	xcb_icccm_get_text_property_reply_wipe(&prop);
 	xcb_delete_property(conn, win, plac);
 	return buf;
+}
+
+static bool
+send(xcb_generic_event_t *evt, xcb_atom_t trg, xcb_timestamp_t time,
+		char *buf, size_t len, size_t maxlen)
+{
+	switch (evt->response_type & ~0x80) {
+	case XCB_SELECTION_REQUEST: {
+		xcb_generic_error_t *err;
+		xcb_selection_request_event_t *ev =
+				(xcb_selection_request_event_t *)evt;
+		xcb_selection_notify_event_t sev = { XCB_SELECTION_NOTIFY,
+				0, 0, ev->time, ev->requestor,
+				ev->selection, ev->target, ev->property };
+
+		if (ev->time < time || ev->property == XCB_NONE) {
+			sev.property = XCB_NONE;
+		} else if (len > maxlen) {
+			die("UNIMPLEMENTED\n");
+		} else if ((err = xcb_request_check(conn,
+				xcb_change_property_checked(conn,
+				XCB_PROP_MODE_REPLACE, ev->requestor,
+				ev->property, trg, 8, len, buf))) != NULL) {
+			sev.property = XCB_NONE; free(err);
+		}
+		xcb_send_event(conn, false, ev->requestor, 0, (char *)&sev);
+		xcb_flush(conn);
+		return false;
+	}
+	case XCB_SELECTION_CLEAR: {
+		return true;
+	}
+	default: ;
+	}
+	return false;
 }
 
 int
@@ -185,37 +222,15 @@ main(int argc, char **argv)
 			conn, asel), NULL)) == NULL || gep->owner != win)
 		die("selune: unable to confirm selection ownership\n");
 	free(gep);
-	size_t maxsend = xcb_get_maximum_request_length(conn) * 3 / 4;
 
 	xcb_generic_event_t *evt;
+	size_t maxlen = xcb_get_maximum_request_length(conn) * 3 / 4;
 	while ((evt = xcb_wait_for_event(conn)) != NULL) {
-			switch (evt->response_type & ~0x80) {
-	case XCB_SELECTION_REQUEST: {
-		xcb_generic_error_t *err;
-		xcb_selection_request_event_t *ev =
-				(xcb_selection_request_event_t *)evt;
-		xcb_selection_notify_event_t sev = { XCB_SELECTION_NOTIFY,
-				0, 0, ev->time, ev->requestor,
-				ev->selection, ev->target, ev->property };
-
-		if (ev->time < time || ev->property == XCB_NONE) {
-			sev.property = XCB_NONE;
-		} else if (len > maxsend) {
-			die("UNIMPLEMENTED\n");
-		} else if ((err = xcb_request_check(conn,
-				xcb_change_property_checked(conn,
-				XCB_PROP_MODE_REPLACE, ev->requestor,
-				ev->property, atrg, 8, len, buf))) != NULL) {
-			sev.property = XCB_NONE; free(err);
-		}
-		xcb_send_event(conn, false, ev->requestor, 0, (char *)&sev);
-		xcb_flush(conn);
-		break;
-	}
-	default: break;
-	}
+		if (send(evt, atrg, time, buf, len, maxlen))
+			break;
 		free(evt);
 	}
+	free(evt);
 
 	xcb_destroy_window(conn, win);
 	xcb_disconnect(conn);
