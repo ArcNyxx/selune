@@ -26,12 +26,19 @@
 			&var, NULL) != 1)                                     \
 		die("selune: unable to get property: %s\n", name);
 
+typedef struct req {
+	xcb_window_t win;
+	xcb_atom_t atom;
+	size_t pos;
+	bool incr;
+} req_t;
+
 static void die(const char *fmt, ...);
 static void *srealloc(void *ptr, size_t len);
 static char *getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time);
 
-xcb_connection_t *conn;
+static xcb_connection_t *conn;
 
 static void
 die(const char *fmt, ...)
@@ -67,8 +74,8 @@ getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 	while ((evt = xcb_wait_for_event(conn)) != NULL &&
 			(evt->response_type & ~0x80) != XCB_SELECTION_NOTIFY)
 		free(evt);
-	if (((xcb_selection_notify_event_t *)evt)->property == 0)
-		die("selune: unable to convert selection: %s\n", trg);
+	if (((xcb_selection_notify_event_t *)evt)->property == XCB_NONE)
+		die("selune: unable to convert selection\n");
 
 	char *buf = NULL; *time = ((xcb_selection_notify_event_t *)evt)->time;
 	if (((xcb_selection_notify_event_t *)evt)->target != incr) {
@@ -76,6 +83,7 @@ getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		buf = srealloc(buf, *len += prop.name_len);
 		memcpy(buf, prop.name, prop.name_len);
 		xcb_icccm_get_text_property_reply_wipe(&prop);
+		xcb_delete_property(conn, win, plac);
 		return buf;
 	}
 
@@ -95,13 +103,14 @@ run:
 		goto run;
 	}
 	xcb_icccm_get_text_property_reply_wipe(&prop);
+	xcb_delete_property(conn, win, plac);
 	return buf;
 }
 
 int
 main(int argc, char **argv)
 {
-	const char *sel = "CLIPBOARD", *trg = "TEXT";
+	const char *sel = "CLIPBOARD", *trg = "UTF8_STRING";
 	if (*(argv = &argv[1]) != NULL && (*argv)[0] == '-') {
 		bool end = false; char *str = argv[0];
 		for (int i = 1; str[i] != '\0'; ++i)
@@ -156,19 +165,57 @@ main(int argc, char **argv)
 			die("selune: unable to read from stdin: ");
 		buf = srealloc(buf, len += ret);
 
-		xcb_change_property_reply_t *rep;
-		if ((rep = xcb_change_property_reply(conn,
-				xcb_change_property(conn, XCB_PROP_MODE_APPEND,
-				win, asel, 8, 0, NULL), NULL)) == NULL)
-			die("selune: unable to acquire timestamp\n");
-		time = rep->time; free(rep);
+		xcb_generic_event_t *evt;
+		xcb_change_property(conn, XCB_PROP_MODE_APPEND, win,
+				atrg, atrg, 8, 0, NULL);
+		while ((evt = xcb_wait_for_event(conn)) != NULL &&
+				(evt->response_type & ~0x80) !=
+				XCB_PROPERTY_NOTIFY)
+			free(evt);
+		time = ((xcb_property_notify_event_t *)evt)->time; free(evt);
 	}
 
 	if (len != 0)         write(STDOUT_FILENO, buf, len);
-	if (fork() != 0)      return 0;
-	if (chdir("/") == -1) die("selune: unable to chdir: /: ");
+	// if (fork() != 0)      return 0;
+	// if (chdir("/") == -1) die("selune: unable to chdir: /: ");
 
+	xcb_get_selection_owner_reply_t *gep;
+	xcb_set_selection_owner(conn, win, asel, time);
+	if ((gep = xcb_get_selection_owner_reply(conn, xcb_get_selection_owner(
+			conn, asel), NULL)) == NULL || gep->owner != win)
+		die("selune: unable to confirm selection ownership\n");
+	free(gep);
+	size_t maxsend = xcb_get_maximum_request_length(conn) * 3 / 4;
 
+	xcb_generic_event_t *evt;
+	while ((evt = xcb_wait_for_event(conn)) != NULL) {
+			switch (evt->response_type & ~0x80) {
+	case XCB_SELECTION_REQUEST: {
+		xcb_generic_error_t *err;
+		xcb_selection_request_event_t *ev =
+				(xcb_selection_request_event_t *)evt;
+		xcb_selection_notify_event_t sev = { XCB_SELECTION_NOTIFY,
+				0, 0, ev->time, ev->requestor,
+				ev->selection, ev->target, ev->property };
+
+		if (ev->time < time || ev->property == XCB_NONE) {
+			sev.property = XCB_NONE;
+		} else if (len > maxsend) {
+			die("UNIMPLEMENTED\n");
+		} else if ((err = xcb_request_check(conn,
+				xcb_change_property_checked(conn,
+				XCB_PROP_MODE_REPLACE, ev->requestor,
+				ev->property, atrg, 8, len, buf))) != NULL) {
+			sev.property = XCB_NONE; free(err);
+		}
+		xcb_send_event(conn, false, ev->requestor, 0, (char *)&sev);
+		xcb_flush(conn);
+		break;
+	}
+	default: break;
+	}
+		free(evt);
+	}
 
 	xcb_destroy_window(conn, win);
 	xcb_disconnect(conn);
