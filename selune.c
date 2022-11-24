@@ -25,6 +25,13 @@
 			xcb_icccm_get_text_property(conn, win, atom),         \
 			&var, NULL) != 1)                                     \
 		die("selune: unable to get property: %s\n", name);
+#define TY(atom, siz, len, buf) else if (ev->property == atom) {              \
+		if ((err = xcb_request_check(conn,                            \
+				xcb_change_property_checked(conn,             \
+				XCB_PROP_MODE_REPLACE, ev->requestor,         \
+				ev->property, atom, siz, len, buf))) != NULL) \
+			sev.property = XCB_NONE; free(err);                   \
+	}
 
 typedef struct req {
 	xcb_window_t win;
@@ -38,7 +45,8 @@ static void *srealloc(void *ptr, size_t len);
 static char *getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time);
 static bool send(xcb_generic_event_t *evt, xcb_atom_t trg,
-		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen);
+		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen,
+		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims);
 
 static xcb_connection_t *conn;
 
@@ -110,8 +118,9 @@ run:
 }
 
 static bool
-send(xcb_generic_event_t *evt, xcb_atom_t trg, xcb_timestamp_t time,
-		char *buf, size_t len, size_t maxlen)
+send(xcb_generic_event_t *evt, xcb_atom_t trg,
+		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen,
+		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims)
 {
 	switch (evt->response_type & ~0x80) {
 	case XCB_SELECTION_REQUEST: {
@@ -122,7 +131,8 @@ send(xcb_generic_event_t *evt, xcb_atom_t trg, xcb_timestamp_t time,
 				0, 0, ev->time, ev->requestor,
 				ev->selection, ev->target, ev->property };
 
-		if (/*ev->time < time ||*/ ev->property == XCB_NONE) {
+		if (/* (ev->time < time && ev->time != XCB_CURRENT_TIME) || */
+				ev->property == XCB_NONE) {
 			sev.property = XCB_NONE;
 		} else if (len > maxlen) {
 			die("UNIMPLEMENTED\n");
@@ -201,6 +211,8 @@ main(int argc, char **argv)
 			if (tot == (len += ret))
 				buf = srealloc(buf, tot *= 2);
 		}
+		if (len == 0)
+			die("selune: unable to read empty input\n");
 		buf = srealloc(buf, len);
 
 		xcb_generic_event_t *evt;
@@ -213,8 +225,8 @@ main(int argc, char **argv)
 			free(evt);
 		time = ((xcb_property_notify_event_t *)evt)->time; free(evt);
 	}
+	write(STDOUT_FILENO, buf, len);
 
-	if (len != 0)         write(STDOUT_FILENO, buf, len);
 	if (fork() != 0)      return 0;
 	if (chdir("/") == -1) die("selune: unable to chdir: /: ");
 
@@ -230,7 +242,7 @@ main(int argc, char **argv)
 	xcb_generic_event_t *evt;
 	size_t maxlen = xcb_get_maximum_request_length(conn) / 4 * 3;
 	while ((evt = xcb_wait_for_event(conn)) != NULL) {
-		if (send(evt, atrg, time, buf, len, maxlen))
+		if (send(evt, atrg, time, buf, len, maxlen, targ, mult, tims))
 			break;
 		free(evt);
 	}
