@@ -77,18 +77,19 @@ static char *
 getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time)
 {
-	xcb_generic_event_t *evt;
+	xcb_generic_event_t *ev;
 	GA(plac, "PLAC", 4) CA(plac, "PLAC")
 	xcb_convert_selection(conn, win, sel, trg, plac, XCB_CURRENT_TIME);
 	xcb_flush(conn);
-	while ((evt = xcb_wait_for_event(conn)) != NULL &&
-			(evt->response_type & ~0x80) != XCB_SELECTION_NOTIFY)
-		free(evt);
-	if (((xcb_selection_notify_event_t *)evt)->property == XCB_NONE)
+	while ((ev = xcb_wait_for_event(conn)) != NULL &&
+			(ev->response_type & ~0x80) != XCB_SELECTION_NOTIFY)
+		free(ev);
+	if (((xcb_selection_notify_event_t *)ev)->property == XCB_NONE)
 		die("selune: unable to convert selection\n");
 
-	char *buf = NULL; *time = ((xcb_selection_notify_event_t *)evt)->time;
-	if (((xcb_selection_notify_event_t *)evt)->target != incr) {
+	char *buf = NULL;
+	*time = ((xcb_selection_notify_event_t *)ev)->time;
+	if (((xcb_selection_notify_event_t *)ev)->target != incr) {
 		GP(prop, plac, "PLAC")
 		if (prop.name_len == 0)
 			die("selune: unable to read empty input\n");
@@ -99,24 +100,24 @@ getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		return buf;
 	}
 
-run:
-	xcb_delete_property(conn, win, plac);
-	while ((evt = xcb_wait_for_event(conn)) != NULL &&
-			(evt->response_type & ~0x80) != XCB_PROPERTY_NOTIFY &&
-			((xcb_property_notify_event_t *)evt)->state != 
-			XCB_PROPERTY_NEW_VALUE)
-		free(evt);
+	for (;;) {
+		xcb_delete_property(conn, win, plac);
+		while ((ev = xcb_wait_for_event(conn)) != NULL && (ev->
+				response_type & ~0x80) != XCB_PROPERTY_NOTIFY
+				&& ((xcb_property_notify_event_t *)ev)->state
+				!= XCB_PROPERTY_NEW_VALUE)
+			free(ev);
 
-	GP(prop, plac, "PLAC")
-	if (prop.name_len != 0) {
+		GP(prop, plac, "PLAC")
+		if (prop.name_len == 0) {
+			xcb_icccm_get_text_property_reply_wipe(&prop);
+			xcb_delete_property(conn, win, plac);
+			return buf;
+		}
 		buf = srealloc(buf, *len += prop.name_len);
 		memcpy(buf, prop.name, prop.name_len);
 		xcb_icccm_get_text_property_reply_wipe(&prop);
-		goto run;
 	}
-	xcb_icccm_get_text_property_reply_wipe(&prop);
-	xcb_delete_property(conn, win, plac);
-	return buf;
 }
 
 static bool
