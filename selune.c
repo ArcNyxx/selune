@@ -215,13 +215,16 @@ main(int argc, char **argv)
 			XCB_EVENT_MASK_PROPERTY_CHANGE })) != NULL)
 		die("selune: unable to create window\n");
 
+
 	GA(asel, sel, strlen(sel)) GA(atrg, trg, strlen(trg))
 	GA(atom, "ATOM", 4) GA(incr, "INCR", 4) GA(targ, "TARGETS", 7)
 	GA(mult, "MULTIPLE", 8) GA(tims, "TIMESTAMP", 9)
 	CA(asel, sel) CA(atrg, trg) CA(atom, "ATOM") CA(incr, "INCR")
 	CA(targ, "TARGETS") CA(mult, "MULTIPLE") CA(tims, "TIMESTAMP")
 
-	size_t len = 0; char *buf = NULL; xcb_timestamp_t time;
+	size_t len = 0;
+	char *buf = NULL;
+	xcb_timestamp_t time;
 	if (isatty(STDIN_FILENO)) {
 		buf = getsel(win, asel, atrg, incr, &len, &time);
 	} else {
@@ -237,15 +240,15 @@ main(int argc, char **argv)
 			die("selune: unable to read empty input\n");
 		buf = srealloc(buf, len);
 
-		xcb_generic_event_t *evt;
+		xcb_generic_event_t *ev;
 		xcb_change_property(conn, XCB_PROP_MODE_APPEND, win,
 				tims, tims, 8, 0, NULL);
 		xcb_flush(conn);
-		while ((evt = xcb_wait_for_event(conn)) != NULL &&
-				(evt->response_type & ~0x80) !=
-				XCB_PROPERTY_NOTIFY)
-			free(evt);
-		time = ((xcb_property_notify_event_t *)evt)->time; free(evt);
+		while ((ev = xcb_wait_for_event(conn)) != NULL && (ev->
+				response_type & ~0x80) != XCB_PROPERTY_NOTIFY)
+			free(ev);
+		time = ((xcb_property_notify_event_t *)ev)->time;
+		free(ev);
 	}
 	write(STDOUT_FILENO, buf, len);
 
@@ -261,15 +264,14 @@ main(int argc, char **argv)
 		die("selune: unable to confirm selection ownership\n");
 	free(gep);
 
-	xcb_generic_event_t *evt;
-	size_t maxlen = xcb_get_maximum_request_length(conn) / 4 * 3;
-	while ((evt = xcb_wait_for_event(conn)) != NULL) {
-		if (send(evt, atrg, time, buf, len, maxlen, targ, mult, tims,
-				atom))
-			break;
-		free(evt);
+	bool done = false;
+	xcb_generic_event_t *ev;
+	size_t maxlen = xcb_get_maximum_request_length(conn) / 8 * 7;
+	while (!done && (ev = xcb_wait_for_event(conn)) != NULL) {
+		done = send(ev, atrg, time, buf, len, maxlen,
+				targ, mult, tims, atom);
+		free(ev);
 	}
-	free(evt);
 
 	xcb_destroy_window(conn, win);
 	xcb_disconnect(conn);
