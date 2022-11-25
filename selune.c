@@ -46,7 +46,7 @@ static char *getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 		xcb_atom_t incr, size_t *len, xcb_timestamp_t *time);
 static bool send(xcb_generic_event_t *evt, xcb_atom_t trg,
 		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen,
-		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims);
+		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims, xcb_atom_t atom);
 
 static xcb_connection_t *conn;
 
@@ -90,6 +90,8 @@ getsel(xcb_window_t win, xcb_atom_t sel, xcb_atom_t trg,
 	char *buf = NULL; *time = ((xcb_selection_notify_event_t *)evt)->time;
 	if (((xcb_selection_notify_event_t *)evt)->target != incr) {
 		GP(prop, plac, "PLAC")
+		if (prop.name_len == 0)
+			die("selune: unable to read empty input\n");
 		buf = srealloc(buf, *len += prop.name_len);
 		memcpy(buf, prop.name, prop.name_len);
 		xcb_icccm_get_text_property_reply_wipe(&prop);
@@ -120,7 +122,7 @@ run:
 static bool
 send(xcb_generic_event_t *evt, xcb_atom_t trg,
 		xcb_timestamp_t time, char *buf, size_t len, size_t maxlen,
-		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims)
+		xcb_atom_t trgs, xcb_atom_t mult, xcb_atom_t tims, xcb_atom_t atom)
 {
 	switch (evt->response_type & ~0x80) {
 	case XCB_SELECTION_REQUEST: {
@@ -128,23 +130,47 @@ send(xcb_generic_event_t *evt, xcb_atom_t trg,
 		xcb_selection_request_event_t *ev =
 				(xcb_selection_request_event_t *)evt;
 		xcb_selection_notify_event_t sev = { XCB_SELECTION_NOTIFY,
-				0, 0, ev->time, ev->requestor,
-				ev->selection, ev->target, ev->property };
+				0, 0, ev->time, ev->requestor, ev->selection,
+				ev->target, ev->property };
 
 		if (/* (ev->time < time && ev->time != XCB_CURRENT_TIME) || */
 				ev->property == XCB_NONE) {
 			sev.property = XCB_NONE;
-		} else if (len > maxlen) {
+			goto send;
+		}
+
+		void **ptr; size_t size = 8; xcb_atom_t type = atom;
+
+		xcb_atom_t bruh[] = { trg, trgs, mult, tims };
+		xcb_atom_t *the = &bruh[0];
+
+		if (sev.target == trgs)
+			size = 32, len = 4, ptr = &the;
+		else if (sev.target == mult)
 			die("UNIMPLEMENTED\n");
-		} else if ((err = xcb_request_check(conn,
-				xcb_change_property_checked(conn,
-				XCB_PROP_MODE_REPLACE, ev->requestor,
-				ev->property, trg, 8, len, buf))) != NULL) {
+		else if (sev.target == tims)
+			size = 32, len = 1, ptr = (void **)
+					&(xcb_timestamp_t []){ time };
+		else if (len > maxlen)
+			die("UNIMPLEMENTED\n");
+		else
+			ptr = (void **)&buf, type = trg;
+
+		fprintf(stderr, "%u %u %u %u %u %p\n", trg, trgs, ev->target,
+				type, sev.target, *ptr);
+
+		if ((err = xcb_request_check(conn, xcb_change_property_checked(
+				conn, XCB_PROP_MODE_REPLACE, ev->requestor, ev
+				->property, type, size, len, *ptr))) != NULL) {
 			sev.property = XCB_NONE; free(err);
 		}
+send:
 		xcb_send_event(conn, false, ev->requestor, 0, (char *)&sev);
 		xcb_flush(conn);
 		return false;
+	}
+	case XCB_PROPERTY_NOTIFY: {
+		break;
 	}
 	case XCB_SELECTION_CLEAR: {
 		return true;
@@ -195,9 +221,10 @@ main(int argc, char **argv)
 		die("selune: unable to create window\n");
 
 	GA(asel, sel, strlen(sel)) GA(atrg, trg, strlen(trg))
-	GA(incr, "INCR", 4) GA(targ, "TARGETS", 7) GA(mult, "MULTIPLE", 8)
-	GA(tims, "TIMESTAMP", 9) CA(asel, sel) CA(atrg, trg) CA(incr, "INCR")
-	CA(targ, "TARGETS") CA(mult, "MULTIPLE")  CA(tims, "TIMESTAMP")
+	GA(atom, "ATOM", 4) GA(incr, "INCR", 4) GA(targ, "TARGETS", 7)
+	GA(mult, "MULTIPLE", 8) GA(tims, "TIMESTAMP", 9)
+	CA(asel, sel) CA(atrg, trg) CA(atom, "ATOM") CA(incr, "INCR")
+	CA(targ, "TARGETS") CA(mult, "MULTIPLE") CA(tims, "TIMESTAMP")
 
 	size_t len = 0; char *buf = NULL; xcb_timestamp_t time;
 	if (isatty(STDIN_FILENO)) {
@@ -242,7 +269,8 @@ main(int argc, char **argv)
 	xcb_generic_event_t *evt;
 	size_t maxlen = xcb_get_maximum_request_length(conn) / 4 * 3;
 	while ((evt = xcb_wait_for_event(conn)) != NULL) {
-		if (send(evt, atrg, time, buf, len, maxlen, targ, mult, tims))
+		if (send(evt, atrg, time, buf, len, maxlen, targ, mult, tims,
+				atom))
 			break;
 		free(evt);
 	}
