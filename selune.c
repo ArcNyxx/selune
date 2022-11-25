@@ -126,7 +126,6 @@ send(xcb_generic_event_t *evt, xcb_atom_t trg,
 {
 	switch (evt->response_type & ~0x80) {
 	case XCB_SELECTION_REQUEST: {
-		xcb_generic_error_t *err;
 		xcb_selection_request_event_t *ev =
 				(xcb_selection_request_event_t *)evt;
 		xcb_selection_notify_event_t sev = { XCB_SELECTION_NOTIFY,
@@ -139,29 +138,24 @@ send(xcb_generic_event_t *evt, xcb_atom_t trg,
 			goto send;
 		}
 
-		void **ptr; size_t size = 8; xcb_atom_t type = atom;
-
-		xcb_atom_t bruh[] = { trg, trgs, mult, tims };
-		xcb_atom_t *the = &bruh[0];
-
-		if (sev.target == trgs)
-			size = 32, len = 4, ptr = &the;
-		else if (sev.target == mult)
+		xcb_atom_t trgarr[] = { trg, trgs, mult, tims };
+		void *ptr; size_t size = 8; xcb_atom_t type = atom;
+		if (ev->target == trgs) {
+			size = 32; len = 4; ptr = trgarr;
+		} else if (ev->target == mult) {
 			die("UNIMPLEMENTED\n");
-		else if (sev.target == tims)
-			size = 32, len = 1, ptr = (void **)
-					&(xcb_timestamp_t []){ time };
-		else if (len > maxlen)
+		} else if (ev->target == tims) {
+			size = 32, len = 1, ptr = &time;
+		} else if (len > maxlen) {
 			die("UNIMPLEMENTED\n");
-		else
-			ptr = (void **)&buf, type = trg;
+		} else {
+			ptr = buf, type = trg;
+		}
 
-		fprintf(stderr, "%u %u %u %u %u %p\n", trg, trgs, ev->target,
-				type, sev.target, *ptr);
-
+		xcb_generic_error_t *err;
 		if ((err = xcb_request_check(conn, xcb_change_property_checked(
 				conn, XCB_PROP_MODE_REPLACE, ev->requestor, ev
-				->property, type, size, len, *ptr))) != NULL) {
+				->property, type, size, len, ptr))) != NULL) {
 			sev.property = XCB_NONE; free(err);
 		}
 send:
