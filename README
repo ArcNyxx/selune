@@ -16,3 +16,9 @@ selune can be built and installed with the following command (run as root):
 
     make clean install
 
+
+Notes
+-----
+Using the INCR property type mechanism for exceptionally large data transfers
+is not properly implemented.  A pull request remedying any protocol errors
+would be appreciated.

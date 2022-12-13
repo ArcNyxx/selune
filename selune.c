@@ -135,7 +135,7 @@ send(xcb_generic_event_t *evt, char *buf, size_t len, size_t maxlen,
 		if (req == NULL) return true;
 
 		if (xcb_request_check(con, xcb_change_property_checked(
-				con, XCB_PROP_MODE_REPLACE, req->win, ev->atom,
+				con, XCB_PROP_MODE_APPEND, req->win, ev->atom,
 				at[ATR], 8, maxlen > len - req->pos ? maxlen :
 				req->pos, &buf[req->pos])) != NULL)
 			die("selune: unable to change property\n");
@@ -175,7 +175,7 @@ send(xcb_generic_event_t *evt, char *buf, size_t len, size_t maxlen,
 		req->pos = 0, req->next = reqs;
 		reqs = req;
 
-		size = 32; len = 0; ptr = NULL; type = at[AIN];
+		size = 32; len = 1; ptr = &(int){ 1 }; type = at[AIN];
 	}
 
 	xcb_generic_error_t *err;
