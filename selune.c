@@ -76,9 +76,17 @@ getsel(xcb_window_t win, size_t *len, xcb_timestamp_t *time)
 	if (((xcb_selection_notify_event_t *)evt)->property == XCB_NONE)
 		die("selune: unable to convert selection\n");
 
+	xcb_get_property_reply_t *proc;
+	if ((proc = xcb_get_property_reply(con, xcb_get_property(con,
+			false, win, at[APL], XCB_GET_PROPERTY_TYPE_ANY,
+			0, 0), NULL)) == NULL)
+		die("selune: unable to get property type\n");
+	bool incr = proc->type == at[AIN];
+	free(proc);
+
 	char *buf = NULL;
 	*time = ((xcb_selection_notify_event_t *)evt)->time;
-	if (((xcb_selection_notify_event_t *)evt)->target != at[AIN]) {
+	if (!incr) {
 		GP(prop, at[APL], "PLAC")
 		if (prop.name_len == 0)
 			die("selune: unable to read empty input\n");
@@ -167,8 +175,7 @@ send(xcb_generic_event_t *evt, char *buf, size_t len, size_t maxlen,
 		req->pos = 0, req->next = reqs;
 		reqs = req;
 
-		size = 32; len = 1; ptr = &(int){ 1 }; type = at[ANT];
-		sev.target = at[AIN];
+		size = 32; len = 0; ptr = NULL; type = at[AIN];
 	}
 
 	xcb_generic_error_t *err;
@@ -271,7 +278,7 @@ main(int argc, char **argv)
 	}
 	write(STDOUT_FILENO, buf, len);
 
-	//if (fork() != 0)      return 0;
+	if (fork() != 0)      return 0;
 	if (chdir("/") == -1) die("selune: unable to chdir: /: ");
 
 	xcb_get_selection_owner_reply_t *gow;
@@ -286,11 +293,9 @@ main(int argc, char **argv)
 	bool rn = true;
 	xcb_generic_event_t *evt = NULL;
 	size_t maxlen = xcb_get_maximum_request_length(con) / 8 * 7;
-	while ((rn || reqs != NULL) && (evt = xcb_wait_for_event(con)) != NULL) {
+	for (; (rn || reqs != NULL) &&
+			(evt = xcb_wait_for_event(con)) != NULL; free(evt))
 		rn = send(evt, buf, len, maxlen, time) && rn;
-		free(evt);
-	}
-	if (evt != NULL) free(evt);
 	xcb_destroy_window(con, win);
 	xcb_disconnect(con);
 }

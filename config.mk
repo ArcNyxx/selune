@@ -14,5 +14,5 @@ WPROFILE = -Wall -Wextra -Wstrict-prototypes -Wmissing-declarations -Wshadow \
 STD = -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L
 LIB = -lxcb -lxcb-icccm
 
-CFLAGS = $(WPROFILE) $(STD) -Os
+CFLAGS = $(WPROFILE) $(STD) -Os -g
 LDFLAGS = $(LIB)
